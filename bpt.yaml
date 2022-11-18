@@ -22,18 +22,15 @@ description: |
   The is the vob.debate project. Hello!
 
 ## Point to the project's homepage on the web
-# homepage: example.com
+homepage: &repo https://github.com/vector-of-bool/debate
 
 ## The source-control repository of the project
-# repository: example.com/vob.debate/source
+repository: *repo
 
 ## A URL to the documentation for the project
-# documentation: example.com/vob.debate/docs
+documentation: *repo
 
 ## Specify an SPX License ID for the project
-# license:
-
-## List the authors of the project
-# authors:
-#   - My Name <my.email@example.org>
-#   - Other Name <other.email@example.org>
+license: BSL-1.0
+authors:
+  - vector-of-bool <vectorofbool@gmail.com>
