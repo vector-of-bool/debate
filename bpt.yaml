@@ -1,0 +1,39 @@
+# Project 'vob.debate' created by 'bpt new'
+name: vob.debate
+version: 0.1.0
+
+## Use 'dependencies' to declare dependencies on external libraries
+# dependencies:
+#   - fmt@8.1.1
+dependencies:
+  - neo-fun@0.12.0
+  - boost.leaf@1.79.0
+
+## Use 'test-dependencies' to declare dependencies on external libraries to be
+## used by this project's tests
+test-dependencies:
+  - catch2@2.13.9 using main
+
+## The relative filepath to the project's README file
+readme: README.md
+
+## Provide a very brief description of the project
+description: |
+  The is the vob.debate project. Hello!
+
+## Point to the project's homepage on the web
+# homepage: example.com
+
+## The source-control repository of the project
+# repository: example.com/vob.debate/source
+
+## A URL to the documentation for the project
+# documentation: example.com/vob.debate/docs
+
+## Specify an SPX License ID for the project
+# license:
+
+## List the authors of the project
+# authors:
+#   - My Name <my.email@example.org>
+#   - Other Name <other.email@example.org>
