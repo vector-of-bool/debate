@@ -1,0 +1,9 @@
+compiler_id: msvc
+debug: true
+cxx_version: c++20
+flags:
+  - /Zc:preprocessor
+  - /utf-8
+warning_flags:
+  # - /WX  # Fails in CI until bpt can mark dependencies as /external:
+  - /wd5105 # "Macro 'defined' has undefined behavior -- appears in winbase.h
