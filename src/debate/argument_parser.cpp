@@ -362,19 +362,15 @@ argument_parser subparser_group::add_parser(params::for_subparser p) {
     if (found != impl.subparsers->parsers.end()) {
         throw invalid_argument_params{"Duplicate subparser name"};
     }
-    subparser child = impl.subparsers->parsers
-                          .emplace(p.name,
-                                   subparser{
-                                       .cat    = p.category,
-                                       .parser = argument_parser(params::for_argument_parser{
-                                           .prog        = p.name,
-                                           .description = p.description,
-                                           .epilog      = p.epilog,
-                                       }),
-                                   })
-                          .first->second;
-    child.parser._impl->parent = _parser._impl;
-    return child.parser;
+    argument_parser parser({
+        .prog        = p.name,
+        .description = p.description,
+        .epilog      = p.epilog,
+    });
+    subparser       child{.cat = p.category, .parser = parser};
+    impl.subparsers->parsers.emplace(p.name, child);
+    parser._impl->parent = _parser._impl;
+    return parser;
 }
 
 void argument_parser::_parse_args(argv_array argv) const {
