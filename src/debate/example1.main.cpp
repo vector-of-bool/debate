@@ -38,6 +38,13 @@ int main(int argc, char** argv) {
         .wants_value = true,
         .help        = "Specify the flag_value with this option",
     });
+    parser.add_argument({
+        .names       = {"--enable-advanced-features", "-E!"},
+        .action      = null_action,
+        .wants_value = false,
+        .help        = "Enable advanced features (advanced)",
+        .category    = debate::advanced,
+    });
 
     opt_string echo_message;
     auto       subs = parser.add_subparsers({
@@ -47,11 +54,11 @@ int main(int argc, char** argv) {
               .required    = true,
     });
     // An "echo" subcommand:
-    auto echo = subs.add_parser("echo",
-                                {
-                                    .description = "Print a message\n\n(This doesn't "
-                                                   "do anything, it's just an example.)",
-                                });
+    auto echo = subs.add_parser({
+        .name        = "echo",
+        .description = "Print a message\n\n(This doesn't "
+                       "do anything, it's just an example.)",
+    });
     echo.add_argument({
         .names    = {"message"},
         .action   = store_string(echo_message),
@@ -70,12 +77,12 @@ int main(int argc, char** argv) {
             parser.parse_main_argv(argc, argv);
             return 0;
         },
-        [](help_request, e_argument_parser parser, e_invoked_as progname) {
-            std::cerr << parser.value.help_string(progname.value);
+        [](help_request h, e_argument_parser parser, e_invoked_as progname) {
+            std::cerr << parser.value.help_string(h.category, progname.value);
             return 0;
         },
         [](missing_argument, e_argument_parser parser, e_invoked_as progname, e_argument arg) {
-            std::cerr << parser.value.usage_string(progname.value) << '\n';
+            std::cerr << parser.value.usage_string(debate::general, progname.value) << '\n';
             auto arg_help   = arg.value.help_string();
             auto help_lines = neo::iter_lines(arg_help)
                 | std::views::transform(NEO_TL(std::string(neo::str_concat("  "sv, _1, "\n"sv))))
@@ -86,7 +93,7 @@ int main(int argc, char** argv) {
             return 1;
         },
         [](missing_argument, e_invoked_as progname, e_argument_parser parser) {
-            std::cerr << parser.value.usage_string(progname.value) << '\n';
+            std::cerr << parser.value.usage_string(debate::general, progname.value) << '\n';
             std::cerr << neo::ufmt("Missing required subcommand\n");
             return 1;
         });

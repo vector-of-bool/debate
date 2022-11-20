@@ -271,8 +271,8 @@ TEST_CASE("Subparsers") {
             .required = false,
         });
 
-        grp.add_parser("foo");
-        grp.add_parser("bar");
+        grp.add_parser({.name = "foo"});
+        grp.add_parser({.name = "bar"});
 
         SECTION("No subparser") {
             parse({"--base-arg=nope"});
@@ -354,9 +354,9 @@ TEST_CASE("Subparsers") {
                   .action   = debate::store_string(selected_subparser),
                   .required = false,
         });
-        auto       foo = grp.add_parser("foo");
+        auto       foo = grp.add_parser({.name = "foo"});
         opt_string foo_value;
-        auto       bar = grp.add_parser("bar");
+        auto       bar = grp.add_parser({.name = "bar"});
         opt_string bar_value;
 
         foo.add_argument({
@@ -394,7 +394,7 @@ TEST_CASE("Subparsers") {
             .required = true,
         });
 
-        subs.add_parser("foo");
+        subs.add_parser({.name = "foo"});
 
         boost::leaf::try_catch(
             [&] {

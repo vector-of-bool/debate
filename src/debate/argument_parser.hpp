@@ -15,7 +15,11 @@ class argument_parser;
 
 using opt_string = std::optional<std::string>;
 
-struct help_request : std::exception {};
+struct help_request : std::exception {
+    debate::category category;
+    explicit help_request(enum category cat) noexcept
+        : category{cat} {}
+};
 
 namespace params {
 
@@ -23,6 +27,13 @@ struct for_argument_parser {
     opt_string prog        = std::nullopt;
     opt_string description = std::nullopt;
     opt_string epilog      = std::nullopt;
+};
+
+struct for_subparser {
+    std::string      name;
+    opt_string       description = std::nullopt;
+    opt_string       epilog      = std::nullopt;
+    debate::category category    = general;
 };
 
 struct for_subparser_group {
@@ -73,12 +84,12 @@ public:
 
     void parse_main_argv(int argc, const char* const* argv) const;
 
-    std::string arg_usage_string() const noexcept;
+    std::string arg_usage_string(category cat) const noexcept;
 
-    std::string usage_string() const noexcept;
-    std::string usage_string(std::string_view progname) const noexcept;
-    std::string help_string() const noexcept;
-    std::string help_string(std::string_view progname) const noexcept;
+    std::string usage_string(category cat) const noexcept;
+    std::string usage_string(category cat, std::string_view progname) const noexcept;
+    std::string help_string(category cat) const noexcept;
+    std::string help_string(category cat, std::string_view progname) const noexcept;
 };
 
 class subparser_group {
@@ -91,13 +102,10 @@ public:
     /**
      * @brief Attach a new subparser to the subparser group.
      *
-     * @param name The name of the subparser, used as the word to the parent processor that will
-     * select the subparser.
      * @return argument_parser A new argument parser that is a child of the parser that was used to
      * create this group.
      */
-    argument_parser add_parser(std::string_view name);
-    argument_parser add_parser(std::string_view name, params::for_argument_parser);
+    argument_parser add_parser(params::for_subparser);
 };
 
 struct e_argument_parser {

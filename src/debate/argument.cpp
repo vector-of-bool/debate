@@ -29,6 +29,7 @@ bool argument::is_required() const noexcept { return _params().required == true;
 bool argument::wants_value() const noexcept { return _params().wants_value; }
 // The "preferred name" appears in diagnostics
 std::string_view argument::preferred_name() const noexcept { return _params().names.front(); }
+enum category    argument::category() const noexcept { return _params().category; }
 
 std::string argument::value_name() const noexcept {
     if (_params().metavar.has_value()) {
@@ -105,7 +106,7 @@ std::string argument::help_string() const noexcept {
                              return neo::ufmt("{} {}", name, valname);
                          }
                      })
-            | neo::join_text("\n"sv);
+            | neo::join_text(" / "sv);
         ret.append(std::string(names));
     }
     ret.append("\n");

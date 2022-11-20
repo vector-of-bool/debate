@@ -18,6 +18,18 @@ using string_vec = std::vector<std::string>;
 using opt_string = std::optional<std::string>;
 using opt_bool   = std::optional<bool>;
 
+enum class category {
+    general,
+    advanced,
+    debugging,
+    hidden,
+};
+
+constexpr auto general   = category::general;
+constexpr auto advanced  = category::advanced;
+constexpr auto debugging = category::debugging;
+constexpr auto hidden    = category::hidden;
+
 namespace params {
 
 struct for_argument {
@@ -31,6 +43,8 @@ struct for_argument {
 
     opt_string metavar = std::nullopt;
     opt_string help    = std::nullopt;
+
+    debate::category category = general;
 };
 
 }  // namespace params
@@ -56,13 +70,14 @@ public:
 
     bool is_positional() const noexcept;
 
-    argument_id id() const noexcept;
-    bool        can_repeat() const noexcept;
-    bool        is_required() const noexcept;
-    bool        wants_value() const noexcept;
-    std::string value_name() const noexcept;
-    std::string syntax_string() const noexcept;
-    std::string help_string() const noexcept;
+    argument_id   id() const noexcept;
+    bool          can_repeat() const noexcept;
+    bool          is_required() const noexcept;
+    bool          wants_value() const noexcept;
+    std::string   value_name() const noexcept;
+    std::string   syntax_string() const noexcept;
+    std::string   help_string() const noexcept;
+    enum category category() const noexcept;
 
     std::string_view preferred_name() const noexcept;
     std::string_view match_long(std::string_view) const noexcept;
