@@ -22,9 +22,8 @@ namespace params {
 struct for_argument_parser {
     opt_string prog        = std::nullopt;
     opt_string description = std::nullopt;
+    opt_string epilog      = std::nullopt;
 };
-
-struct for_subparser {};
 
 struct for_subparser_group {
     std::string title = "subcommands";
@@ -74,6 +73,8 @@ public:
 
     void parse_main_argv(int argc, const char* const* argv) const;
 
+    std::string arg_usage_string() const noexcept;
+
     std::string usage_string() const noexcept;
     std::string usage_string(std::string_view progname) const noexcept;
     std::string help_string() const noexcept;
@@ -101,6 +102,14 @@ public:
 
 struct e_argument_parser {
     argument_parser value;
+};
+
+struct e_subparser_group {
+    subparser_group value;
+};
+
+struct e_invoked_as {
+    std::string value;
 };
 
 }  // namespace debate

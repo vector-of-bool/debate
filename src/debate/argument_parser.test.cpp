@@ -266,8 +266,9 @@ TEST_CASE("Subparsers") {
         opt_string selected_subparser;
 
         auto grp = p.add_subparsers({
-            .title  = "subcommand",
-            .action = debate::store_string(selected_subparser),
+            .title    = "subcommand",
+            .action   = debate::store_string(selected_subparser),
+            .required = false,
         });
 
         grp.add_parser("foo");
@@ -349,7 +350,10 @@ TEST_CASE("Subparsers") {
 
     SECTION("Subparser with arguments") {
         opt_string selected_subparser;
-        auto       grp = p.add_subparsers({.action = debate::store_string(selected_subparser)});
+        auto       grp = p.add_subparsers({
+                  .action   = debate::store_string(selected_subparser),
+                  .required = false,
+        });
         auto       foo = grp.add_parser("foo");
         opt_string foo_value;
         auto       bar = grp.add_parser("bar");

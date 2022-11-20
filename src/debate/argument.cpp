@@ -1,9 +1,9 @@
 #include "./argument.hpp"
 
+#include "./detail/reflow.hpp"
 #include "./error.hpp"
 
 #include <neo/tokenize.hpp>
-#include <neo/utf8.hpp>
 
 #include <algorithm>
 #include <cstring>
@@ -110,11 +110,8 @@ std::string argument::help_string() const noexcept {
     }
     ret.append("\n");
     if (_params().help) {
-        auto help = neo::trim(neo::view_text(*_params().help));
-        for (auto line : neo::iter_lines(help)) {
-            line = neo::trim(line);
-            ret.append(neo::ufmt("  {}\n", neo::view_text(line)));
-        }
+        auto help = detail::reflow_text(*_params().help, "   ", 79);
+        ret.append(std::string(neo::str_concat(" ➥ ", neo::trim(help), "\n")));
     }
 
     return ret;

@@ -1,10 +1,13 @@
 #include "./argument_parser.hpp"
 
+#include "./detail/reflow.hpp"
 #include "./error.hpp"
 
+#include <boost/leaf/exception.hpp>
 #include <boost/leaf/on_error.hpp>
 #include <neo/assert.hpp>
 #include <neo/memory.hpp>
+#include <neo/tl.hpp>
 #include <neo/tokenize.hpp>
 #include <neo/ufmt.hpp>
 #include <neo/utility.hpp>
@@ -17,10 +20,13 @@
 using namespace std::literals;
 using namespace debate;
 namespace stdr = std::ranges;
+namespace stdv = std::views;
 
 using strv = std::string_view;
 
 using parser_map = std::map<std::string, argument_parser, std::less<>>;
+
+namespace {
 
 struct nocopy {
     nocopy()              = default;
@@ -37,6 +43,8 @@ struct subparser_info {
 
     std::function<void(std::string_view, std::string_view)> action;
 };
+
+}  // namespace
 
 struct detail::argument_parser_impl {
     params::for_argument_parser params;
@@ -59,10 +67,6 @@ struct detail::argument_parser_impl {
 
 namespace {
 
-struct subparser_group_impl {
-    std::map<std::string, argument_parser>* subparser_map_ptr;
-};
-
 struct parsing_state {
     explicit parsing_state(argument_parser n)
         : parser_chain({n}) {}
@@ -72,7 +76,7 @@ struct parsing_state {
     std::set<argument_id> seen{};
 
     void check_help(argv_subrange remaining) {
-        if (stdr::find_if(remaining, [](auto s) { return s == neo::oper::any_of("--help", "-h"); })
+        if (stdr::find_if(remaining, NEO_TL(_1 == neo::oper::any_of("--help", "-h")))
             != remaining.end()) {
             throw help_request{};
         }
@@ -96,9 +100,8 @@ struct parsing_state {
     }
 
     auto chain_arguments() const {
-        return parser_chain | std::views::transform([](auto parser) -> const auto& {
-                   return _impl_of(parser).arguments;
-               })
+        return parser_chain                                          //
+            | std::views::transform(NEO_TL(_impl_of(_1).arguments))  //
             | std::views::join;
     }
 
@@ -107,8 +110,8 @@ struct parsing_state {
             auto _ = boost::leaf::on_error(e_argument_parser{parser});
             for (const argument& arg : _impl_of(parser).arguments) {
                 if (arg.is_required() and not seen.count(arg.id())) {
-                    auto _1 = boost::leaf::on_error(e_argument{arg});
-                    throw missing_argument{std::string(arg.preferred_name())};
+                    BOOST_LEAF_THROW_EXCEPTION(missing_argument{std::string(arg.preferred_name())},
+                                               e_argument{arg});
                 }
             }
         }
@@ -116,7 +119,7 @@ struct parsing_state {
         if (_impl_of(parser_chain.back()).subparsers
             and _impl_of(parser_chain.back()).subparsers->required) {
             auto _ = boost::leaf::on_error(e_argument_parser{parser_chain.back()});
-            throw missing_argument{std::string{_impl_of(parser_chain.back()).subparsers->title}};
+            throw(missing_argument{std::string(_impl_of(parser_chain.back()).subparsers->title)});
         }
     }
 
@@ -325,7 +328,7 @@ subparser_group argument_parser::add_subparsers(params::for_subparser_group p) {
         .parsers     = {},
         .title       = p.title,
         .description = p.description,
-        .required    = p.required.value_or(false),
+        .required    = p.required.value_or(true),
         .parent      = _impl,
         .action      = p.action,
     };
@@ -358,13 +361,45 @@ void argument_parser::_parse_args(argv_array argv) const {
 }
 
 void argument_parser::parse_main_argv(int argc, const char* const* argv) const {
+    neo_assert_always(expects,
+                      argc > 1,
+                      "At least one argument is required for parse_main_argv()",
+                      argc);
+    auto       _ = boost::leaf::on_error(e_invoked_as{argv[0]});
     argv_array arr{argv + 1, argv + argc};
     _parse_args(std::move(arr));
+}
+
+std::string argument_parser::arg_usage_string() const noexcept {
+    std::string ret;
+    // A shorthand for each argument:
+    auto arg_syntaxes = _impl->arguments             //
+        | stdv::transform(&argument::syntax_string)  //
+        | neo::join_text(" "sv);
+    ret = std::string(arg_syntaxes);
+
+    if (_impl->subparsers.has_value()) {
+        auto comma_names =                                    //
+            _impl->subparsers->parsers                        //
+            | stdv::transform(NEO_TL(_1.second._impl->name))  //
+            | neo::join_text(","sv);
+        auto subcommands = neo::str_concat("{"sv, comma_names, "}"sv);
+        if (not ret.empty()) {
+            ret.push_back(' ');
+        }
+        if (_impl->subparsers->required) {
+            ret.append(std::string(neo::str_concat(subcommands)));
+        } else {
+            ret.append(std::string(neo::str_concat("[", subcommands, "]")));
+        }
+    }
+    return ret;
 }
 
 std::string argument_parser::usage_string() const noexcept {
     return usage_string(_impl->params.prog.value_or("<program>"));
 }
+
 std::string argument_parser::usage_string(std::string_view progname) const noexcept {
     std::string subcommand_suffix;
     auto        tail_parser = _impl;
@@ -379,42 +414,16 @@ std::string argument_parser::usage_string(std::string_view progname) const noexc
         }
         tail_parser = tail_parser->parent.lock();
     }
-    auto ret    = neo::ufmt("Usage: {}{}", progname, subcommand_suffix);
+    auto ret    = neo::ufmt("{}{}", progname, subcommand_suffix);
     auto indent = ret.size() + 1;
     if (indent > 50) {
         ret.push_back('\n');
         indent = 10;
         ret.append(indent, ' ');
     }
-
-    std::size_t col = indent;
-    for (auto& arg : _impl->arguments) {
-        auto synstr = arg.syntax_string();
-        if (col + synstr.size() > 79 && col > indent) {
-            ret.append("\n");
-            ret.append(indent - 1, ' ');
-            col = indent - 1;
-        }
-        ret.append(" " + synstr);
-        col += synstr.size() + 1;
-    }
-
-    if (_impl->subparsers.has_value()) {
-        auto&       subs           = _impl->subparsers->parsers;
-        std::string subcommand_str = " {";
-        for (auto it = subs.cbegin(); it != subs.cend();) {
-            subcommand_str.append(it->second._impl->name);
-            ++it;
-            if (it != subs.cend()) {
-                subcommand_str.append(",");
-            }
-        }
-        subcommand_str.append("}");
-        if (col + subcommand_str.size() > 79 && col > indent) {
-            ret.append("\n");
-            ret.append(indent - 1, ' ');
-        }
-        ret.append(subcommand_str);
+    auto args = arg_usage_string();
+    if (not args.empty()) {
+        ret = std::string(neo::str_concat(ret, " "sv, args));
     }
     return ret;
 }
@@ -422,11 +431,13 @@ std::string argument_parser::usage_string(std::string_view progname) const noexc
 std::string argument_parser::help_string() const noexcept {
     return help_string(_impl->params.prog.value_or("<program>"));
 }
+
 std::string argument_parser::help_string(std::string_view progname) const noexcept {
-    std::string ret = usage_string(progname);
+    std::string ret = "Usage: " + usage_string(progname);
     ret.append("\n\n");
     if (_impl->params.description) {
-        ret.append(*_impl->params.description);
+        auto help = detail::reflow_text(*_impl->params.description, "  ", 79);
+        ret.append(help);
         ret.append("\n\n");
     }
     bool any_required = false;
@@ -471,18 +482,19 @@ std::string argument_parser::help_string(std::string_view progname) const noexce
             ret.append("\n");
         }
         for (auto& [key, sub] : subs.parsers) {
-            ret.append(neo::ufmt("  {}", sub._impl->name));
+            auto usg = sub.arg_usage_string();
+            ret.append(std::string(neo::str_concat("• ", key, " ", usg)));
             auto& desc = sub._impl->params.description;
             if (desc) {
-                ret.append("\n");
-                auto trimmed = neo::trim(*desc);
-                for (auto line : neo::iter_lines(trimmed)) {
-                    line = neo::trim(line);
-                    ret.append(neo::ufmt("    {}\n", neo::view_text(line)));
-                }
-                ret.append("\n");
+                auto d = detail::reflow_text(*desc, "      ", 79);
+                ret.append(std::string(neo::str_concat("\n", "   ➥ ", neo::trim(d), "\n")));
             }
         }
+    }
+
+    if (_impl->params.epilog.has_value()) {
+        auto ep = detail::reflow_text(*_impl->params.epilog, "", 79);
+        ret.append(std::string(neo::str_concat("\n", ep, "\n\n")));
     }
     return ret;
 }
