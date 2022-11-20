@@ -17,7 +17,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
       - name: Build and Test
-        run: bash tools/earthly.sh +build-alpine-gcc-10.3 --cxx_flags "-fcoroutines"
+        run: bash tools/earthly.sh +build-alpine-gcc-10.3 --cxx_flags "-fcoroutines" --runtime_debug false
 
   build-vs2019:
     name: Build for VS 2019

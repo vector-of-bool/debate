@@ -13,6 +13,7 @@ build:
     ARG compiler_id=gnu
     ARG compiler="g++"
     ARG cxx_flags
+    ARG runtime_debug=true
     FROM alpine:$alpine_version
     RUN apk add jq gcc "g++" musl-dev ccache
     COPY --dir src/ tools/ conf/ bpt.yaml /s
@@ -22,13 +23,14 @@ build:
         --arg compiler_id "$compiler_id" \
         --arg compiler "$compiler" \
         --arg cxx_flags "$cxx_flags" \
+        --argjson runtime_debug "$runtime_debug" \
         '{ \
             compiler_id: $compiler_id, \
             cxx_compiler: $compiler, \
             cxx_version: "c++20", \
             cxx_flags: $cxx_flags, \
             debug: true, \
-            runtime: {debug: true}, \
+            runtime: {debug: $runtime_debug}, \
             warning_flags: ["-Werror", "-Wsign-compare", "-Wconversion"], \
             compiler_launcher: "ccache", \
         }' \

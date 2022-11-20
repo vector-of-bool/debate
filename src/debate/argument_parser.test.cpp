@@ -5,6 +5,8 @@
 
 #include <catch2/catch.hpp>
 
+#include <array>
+
 using debate::argument_parser;
 using debate::opt_string;
 

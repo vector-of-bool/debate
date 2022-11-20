@@ -5,5 +5,5 @@ flags:
   - /Zc:preprocessor
   - /utf-8
 warning_flags:
-  - /WX
+  # - /WX  # Fails in CI until bpt can mark dependencies as /external:
   - /wd5105 # "Macro 'defined' has undefined behavior -- appears in winbase.h
