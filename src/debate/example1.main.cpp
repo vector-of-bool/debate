@@ -72,6 +72,18 @@ int main(int argc, char** argv) {
         )",
     });
 
+    auto dbg = subs.add_parser({
+        .name        = "debug",
+        .description = "Run a debug command",
+        .category    = debate::debugging,
+    });
+
+    dbg.add_argument({
+        .names  = {"program"},
+        .action = null_action,
+        .help   = "The program",
+    });
+
     return boost::leaf::try_catch(
         [&] {
             parser.parse_main_argv(argc, argv);

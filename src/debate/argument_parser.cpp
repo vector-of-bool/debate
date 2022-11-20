@@ -529,7 +529,7 @@ std::string argument_parser::help_string(category cat, std::string_view progname
     if (any_dbg or any_adv) {
         ret.append(
             "Help options:\n"
-            "  --help, -h\n"
+            "  --help / -h\n"
             "    ➥ Get general help\n\n");
         if (any_adv) {
             ret.append(
