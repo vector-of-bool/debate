@@ -86,8 +86,7 @@ std::string debate::detail::reflow_text(std::string_view const given,
     auto        tokens_end  = tokens.end();
     while (tokens_iter != tokens_end) {
         auto tokens = *tokens_iter;
-        auto chars  = stdv::join(tokens);
-        std::ranges::copy(chars, std::back_inserter(acc));
+        acc.append(neo::join_text(tokens, ""sv));
         ++tokens_iter;
         if (tokens_iter != tokens_end) {
             acc.append("\n\n");
