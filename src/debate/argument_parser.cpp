@@ -1,10 +1,13 @@
 #include "./argument_parser.hpp"
 
+#include "./detail/reflow.hpp"
 #include "./error.hpp"
 
+#include <boost/leaf/exception.hpp>
 #include <boost/leaf/on_error.hpp>
 #include <neo/assert.hpp>
 #include <neo/memory.hpp>
+#include <neo/tl.hpp>
 #include <neo/tokenize.hpp>
 #include <neo/ufmt.hpp>
 #include <neo/utility.hpp>
@@ -17,17 +20,25 @@
 using namespace std::literals;
 using namespace debate;
 namespace stdr = std::ranges;
+namespace stdv = std::views;
 
 using strv = std::string_view;
 
-using parser_map = std::map<std::string, argument_parser, std::less<>>;
+namespace {
 
 struct nocopy {
     nocopy()              = default;
     nocopy(const nocopy&) = delete;
 };
 
-struct subparser_info {
+struct subparser {
+    category        cat;
+    argument_parser parser;
+};
+
+using parser_map = std::map<std::string, subparser, std::less<>>;
+
+struct subparser_group_impl {
     parser_map  parsers;
     std::string title;
     opt_string  description;
@@ -38,6 +49,8 @@ struct subparser_info {
     std::function<void(std::string_view, std::string_view)> action;
 };
 
+}  // namespace
+
 struct detail::argument_parser_impl {
     params::for_argument_parser params;
 
@@ -47,7 +60,7 @@ struct detail::argument_parser_impl {
     /// Command-line arguments attached to this parser
     std::vector<debate::argument> arguments{};
     /// Sub-parsers attached to this parser. Only non-null after a call to add_subparsers()
-    std::optional<subparser_info> subparsers{};
+    std::optional<subparser_group_impl> subparsers{};
 
     // nocopy _disable_copy{};
 
@@ -59,10 +72,6 @@ struct detail::argument_parser_impl {
 
 namespace {
 
-struct subparser_group_impl {
-    std::map<std::string, argument_parser>* subparser_map_ptr;
-};
-
 struct parsing_state {
     explicit parsing_state(argument_parser n)
         : parser_chain({n}) {}
@@ -72,9 +81,22 @@ struct parsing_state {
     std::set<argument_id> seen{};
 
     void check_help(argv_subrange remaining) {
-        if (stdr::find_if(remaining, [](auto s) { return s == neo::oper::any_of("--help", "-h"); })
-            != remaining.end()) {
-            throw help_request{};
+        static std::map<std::string_view, category> help_map = {
+            {"--help", general},
+            {"-help", general},
+            {"-h", general},
+            {"-?", general},
+            {"--help-adv", advanced},
+            {"--help-advanced", advanced},
+            {"--help-dbg", debugging},
+            {"--help-debug", debugging},
+            {"--help-all", debugging},
+        };
+        auto is_help_request = [](auto s) { return help_map.contains(s); };
+        auto help_arg        = stdr::find_if(remaining, is_help_request);
+        if (help_arg != remaining.end()) {
+            category cat = help_map.find(*help_arg)->second;
+            throw help_request{cat};
         }
     }
 
@@ -96,9 +118,8 @@ struct parsing_state {
     }
 
     auto chain_arguments() const {
-        return parser_chain | std::views::transform([](auto parser) -> const auto& {
-                   return _impl_of(parser).arguments;
-               })
+        return parser_chain                                          //
+            | std::views::transform(NEO_TL(_impl_of(_1).arguments))  //
             | std::views::join;
     }
 
@@ -107,8 +128,8 @@ struct parsing_state {
             auto _ = boost::leaf::on_error(e_argument_parser{parser});
             for (const argument& arg : _impl_of(parser).arguments) {
                 if (arg.is_required() and not seen.count(arg.id())) {
-                    auto _1 = boost::leaf::on_error(e_argument{arg});
-                    throw missing_argument{std::string(arg.preferred_name())};
+                    BOOST_LEAF_THROW_EXCEPTION(missing_argument{std::string(arg.preferred_name())},
+                                               e_argument{arg});
                 }
             }
         }
@@ -116,7 +137,7 @@ struct parsing_state {
         if (_impl_of(parser_chain.back()).subparsers
             and _impl_of(parser_chain.back()).subparsers->required) {
             auto _ = boost::leaf::on_error(e_argument_parser{parser_chain.back()});
-            throw missing_argument{std::string{_impl_of(parser_chain.back()).subparsers->title}};
+            throw(missing_argument{std::string(_impl_of(parser_chain.back()).subparsers->title)});
         }
     }
 
@@ -287,7 +308,7 @@ struct parsing_state {
                 if (tail_parser.subparsers->action) {
                     tail_parser.subparsers->action(given, given);
                 }
-                parser_chain.push_back(child->second);
+                parser_chain.push_back(child->second.parser);
                 return 1;
             } else {
                 check_help(argv);
@@ -321,11 +342,11 @@ subparser_group argument_parser::add_subparsers(params::for_subparser_group p) {
         throw invalid_argument_params{
             "Cannot have multiple subparser groups attached to a single parent parser"};
     }
-    _impl->subparsers = subparser_info{
+    _impl->subparsers = subparser_group_impl{
         .parsers     = {},
         .title       = p.title,
         .description = p.description,
-        .required    = p.required.value_or(false),
+        .required    = p.required.value_or(true),
         .parent      = _impl,
         .action      = p.action,
     };
@@ -335,21 +356,21 @@ subparser_group argument_parser::add_subparsers(params::for_subparser_group p) {
 subparser_group::subparser_group(argument_parser p) noexcept
     : _parser(p) {}
 
-argument_parser subparser_group::add_parser(std::string_view name, params::for_argument_parser p) {
+argument_parser subparser_group::add_parser(params::for_subparser p) {
     auto& impl  = detail::argument_parser_impl::extract(_parser);
-    auto  found = impl.subparsers->parsers.find(name);
+    auto  found = impl.subparsers->parsers.find(p.name);
     if (found != impl.subparsers->parsers.end()) {
         throw invalid_argument_params{"Duplicate subparser name"};
     }
-    auto child = impl.subparsers->parsers.emplace(std::string{name}, argument_parser{std::move(p)})
-                     .first->second;
-    child._impl->parent = _parser._impl;
-    child._impl->name   = std::string(name);
-    return child;
-}
-
-argument_parser subparser_group::add_parser(std::string_view name) {
-    return add_parser(name, params::for_argument_parser{});
+    argument_parser parser({
+        .prog        = p.name,
+        .description = p.description,
+        .epilog      = p.epilog,
+    });
+    subparser       child{.cat = p.category, .parser = parser};
+    impl.subparsers->parsers.emplace(p.name, child);
+    parser._impl->parent = _parser._impl;
+    return parser;
 }
 
 void argument_parser::_parse_args(argv_array argv) const {
@@ -358,18 +379,52 @@ void argument_parser::_parse_args(argv_array argv) const {
 }
 
 void argument_parser::parse_main_argv(int argc, const char* const* argv) const {
+    neo_assert_always(expects,
+                      argc > 1,
+                      "At least one argument is required for parse_main_argv()",
+                      argc);
+    auto       _ = boost::leaf::on_error(e_invoked_as{argv[0]});
     argv_array arr{argv + 1, argv + argc};
     _parse_args(std::move(arr));
 }
 
-std::string argument_parser::usage_string() const noexcept {
-    return usage_string(_impl->params.prog.value_or("<program>"));
+std::string argument_parser::arg_usage_string(category cat) const noexcept {
+    auto arg_syntaxes = _impl->arguments              //
+        | stdv::filter(NEO_TL(_1.category() <= cat))  //
+        | stdv::transform(&argument::syntax_string)   //
+        | neo::join_text(" "sv);
+
+    auto ret = std::string(arg_syntaxes);
+    if (_impl->subparsers.has_value()) {
+        auto comma_names =                                //
+            _impl->subparsers->parsers                    //
+            | stdv::filter(NEO_TL(_1.second.cat <= cat))  //
+            | stdv::transform(NEO_TL(_1.first))           //
+            | neo::join_text(","sv);
+        auto subcommands = neo::str_concat("{"sv, comma_names, "}"sv);
+        if (not ret.empty()) {
+            ret.push_back(' ');
+        }
+        if (_impl->subparsers->required) {
+            ret.append(std::string(neo::str_concat(subcommands)));
+        } else {
+            ret.append(std::string(neo::str_concat("[", subcommands, "]")));
+        }
+    }
+    return ret;
 }
-std::string argument_parser::usage_string(std::string_view progname) const noexcept {
+
+std::string argument_parser::usage_string(category cat) const noexcept {
+    return usage_string(cat, _impl->params.prog.value_or("<program>"));
+}
+
+std::string argument_parser::usage_string(category cat, std::string_view progname) const noexcept {
     std::string subcommand_suffix;
     auto        tail_parser = _impl;
     while (tail_parser) {
-        for (const argument& arg : tail_parser->arguments) {
+        neo::ranges::input_range_of<argument> auto selected_args
+            = stdv::filter(tail_parser->arguments, NEO_TL(_1.category() <= cat));
+        for (const argument& arg : selected_args) {
             if (arg.is_required() and tail_parser != _impl) {
                 subcommand_suffix = neo::ufmt(" {}{}", arg.syntax_string(), subcommand_suffix);
             }
@@ -379,58 +434,38 @@ std::string argument_parser::usage_string(std::string_view progname) const noexc
         }
         tail_parser = tail_parser->parent.lock();
     }
-    auto ret    = neo::ufmt("Usage: {}{}", progname, subcommand_suffix);
+    auto ret    = neo::ufmt("{}{}", progname, subcommand_suffix);
     auto indent = ret.size() + 1;
     if (indent > 50) {
         ret.push_back('\n');
         indent = 10;
         ret.append(indent, ' ');
     }
-
-    std::size_t col = indent;
-    for (auto& arg : _impl->arguments) {
-        auto synstr = arg.syntax_string();
-        if (col + synstr.size() > 79 && col > indent) {
-            ret.append("\n");
-            ret.append(indent - 1, ' ');
-            col = indent - 1;
-        }
-        ret.append(" " + synstr);
-        col += synstr.size() + 1;
-    }
-
-    if (_impl->subparsers.has_value()) {
-        auto&       subs           = _impl->subparsers->parsers;
-        std::string subcommand_str = " {";
-        for (auto it = subs.cbegin(); it != subs.cend();) {
-            subcommand_str.append(it->second._impl->name);
-            ++it;
-            if (it != subs.cend()) {
-                subcommand_str.append(",");
-            }
-        }
-        subcommand_str.append("}");
-        if (col + subcommand_str.size() > 79 && col > indent) {
-            ret.append("\n");
-            ret.append(indent - 1, ' ');
-        }
-        ret.append(subcommand_str);
+    auto args = arg_usage_string(cat);
+    if (not args.empty()) {
+        ret = std::string(neo::str_concat(ret, " "sv, args));
     }
     return ret;
 }
 
-std::string argument_parser::help_string() const noexcept {
-    return help_string(_impl->params.prog.value_or("<program>"));
+std::string argument_parser::help_string(category cat) const noexcept {
+    return help_string(cat, _impl->params.prog.value_or("<program>"));
 }
-std::string argument_parser::help_string(std::string_view progname) const noexcept {
-    std::string ret = usage_string(progname);
+
+std::string argument_parser::help_string(category cat, std::string_view progname) const noexcept {
+    std::string ret = "Usage: " + usage_string(cat, progname);
     ret.append("\n\n");
     if (_impl->params.description) {
-        ret.append(*_impl->params.description);
+        auto help = detail::reflow_text(*_impl->params.description, "  ", 79);
+        ret.append(help);
         ret.append("\n\n");
     }
     bool any_required = false;
-    for (auto& arg : _impl->arguments) {
+
+    neo::ranges::input_range_of<argument> auto selected_args
+        = stdv::filter(_impl->arguments, NEO_TL(_1.category() <= cat));
+
+    for (auto& arg : selected_args) {
         if (not arg.is_required()) {
             continue;
         }
@@ -444,7 +479,7 @@ std::string argument_parser::help_string(std::string_view progname) const noexce
         }
     }
     bool any_non_required = false;
-    for (auto& arg : _impl->arguments) {
+    for (auto& arg : selected_args) {
         if (arg.is_required()) {
             continue;
         }
@@ -456,7 +491,6 @@ std::string argument_parser::help_string(std::string_view progname) const noexce
             ret.append(neo::ufmt("  {}\n", neo::view_text(line)));
         }
         any_non_required = true;
-        ret.append("\n");
     }
 
     if (_impl->subparsers) {
@@ -470,19 +504,48 @@ std::string argument_parser::help_string(std::string_view progname) const noexce
             }
             ret.append("\n");
         }
-        for (auto& [key, sub] : subs.parsers) {
-            ret.append(neo::ufmt("  {}", sub._impl->name));
-            auto& desc = sub._impl->params.description;
+        for (auto& [key, sub] : subs.parsers | stdv::filter(NEO_TL(_1.second.cat <= cat))) {
+            argument_parser subp = sub.parser;
+            std::string     usg  = subp.arg_usage_string(cat);
+            ret.append(std::string(neo::str_concat("• ", key, " ", usg)));
+            auto& desc = subp._impl->params.description;
             if (desc) {
-                ret.append("\n");
-                auto trimmed = neo::trim(*desc);
-                for (auto line : neo::iter_lines(trimmed)) {
-                    line = neo::trim(line);
-                    ret.append(neo::ufmt("    {}\n", neo::view_text(line)));
-                }
-                ret.append("\n");
+                auto d = detail::reflow_text(*desc, "     ", 79);
+                ret.append(std::string(neo::str_concat("\n", "   ➥ ", neo::trim(d), "\n")));
             }
         }
+        ret.append("\n");
+    }
+
+    auto any_of_category = [&](auto C) {
+        return stdr::any_of(_impl->arguments, [&](auto arg) { return arg.category() == C; })
+            or (_impl->subparsers and stdr::any_of(_impl->subparsers->parsers, [&](auto pair) {
+                    return pair.second.cat == C;
+                }));
+    };
+    auto any_dbg = any_of_category(debugging);
+    auto any_adv = any_of_category(advanced);
+
+    if (any_dbg or any_adv) {
+        ret.append(
+            "Help options:\n"
+            "  --help / -h\n"
+            "    ➥ Get general help\n\n");
+        if (any_adv) {
+            ret.append(
+                "  --help-adv\n"
+                "    ➥ Include advanced progam options\n\n");
+        }
+        if (any_dbg) {
+            ret.append(
+                "  --help-dbg\n"
+                "    ➥ Include debugging program options\n\n");
+        }
+    }
+
+    if (_impl->params.epilog.has_value()) {
+        auto ep = detail::reflow_text(*_impl->params.epilog, "", 79);
+        ret.append(std::string(neo::str_concat(ep, "\n\n")));
     }
     return ret;
 }
