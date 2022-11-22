@@ -380,7 +380,7 @@ void argument_parser::_parse_args(argv_array argv) const {
 
 void argument_parser::parse_main_argv(int argc, const char* const* argv) const {
     neo_assert_always(expects,
-                      argc > 1,
+                      argc >= 1,
                       "At least one argument is required for parse_main_argv()",
                       argc);
     auto       _ = boost::leaf::on_error(e_invoked_as{argv[0]});
