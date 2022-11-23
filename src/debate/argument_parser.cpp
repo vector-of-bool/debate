@@ -24,6 +24,10 @@ namespace stdv = std::views;
 
 using strv = std::string_view;
 
+#define ON_ERROR(Value) P_ON_ERROR(Value, __LINE__)
+#define P_ON_ERROR(Value, Line) P_ON_ERROR_1(Value, Line)
+#define P_ON_ERROR_1(Value, Line) const auto _on_error_##Line = boost::leaf::on_error(Value)
+
 namespace {
 
 struct nocopy {
@@ -101,8 +105,7 @@ struct parsing_state {
     }
 
     void parse_args(const argv_array& args) {
-        auto _ = boost::leaf::on_error([&] { return e_argv_array{args}; });
-
+        ON_ERROR(e_argv_array{args});
         argv_subrange argv{args.begin(), args.end()};
 
         while (not argv.empty()) {
@@ -125,25 +128,27 @@ struct parsing_state {
 
     void finalize() const {
         for (const auto& parser : parser_chain) {
-            auto _ = boost::leaf::on_error(e_argument_parser{parser});
+            ON_ERROR(e_argument_parser{parser});
             for (const argument& arg : _impl_of(parser).arguments) {
                 if (arg.is_required() and not seen.count(arg.id())) {
-                    BOOST_LEAF_THROW_EXCEPTION(missing_argument{std::string(arg.preferred_name())},
-                                               e_argument{arg});
+                    ON_ERROR(e_argument{arg});
+                    BOOST_LEAF_THROW_EXCEPTION(missing_argument{std::string(arg.preferred_name())});
                 }
             }
         }
 
         if (_impl_of(parser_chain.back()).subparsers
             and _impl_of(parser_chain.back()).subparsers->required) {
-            auto _ = boost::leaf::on_error(e_argument_parser{parser_chain.back()});
-            throw(missing_argument{std::string(_impl_of(parser_chain.back()).subparsers->title)});
+            ON_ERROR(e_argument_parser{parser_chain.back()});
+            BOOST_LEAF_THROW_EXCEPTION(
+                missing_argument{std::string(_impl_of(parser_chain.back()).subparsers->title)});
         }
     }
 
     int parse_more(argv_subrange argv) {
         strv current = argv.front();
-        auto _       = boost::leaf::on_error([&] { return e_parsing_word{std::string(current)}; },
+        ON_ERROR(e_parsing_word{std::string(current)});
+        auto _ = boost::leaf::on_error(e_parsing_word{std::string(current)},
                                        e_argument_parser{parser_chain.back()});
         if (current.starts_with("--")) {
             // A long option
@@ -156,24 +161,29 @@ struct parsing_state {
     }
 
     int try_parse_long(strv given, argv_subrange argv) {
-        for (const argument& arg : std::views::reverse(chain_arguments())) {
-            auto match = arg.match_long(given);
-            if (match.empty()) {
-                continue;
+        ON_ERROR(e_argument_parser(parser_chain.back()));
+        for (auto parser : std::views::reverse(parser_chain)) {
+            ON_ERROR(e_argument_parser{parser});
+            for (const argument& arg : _impl_of(parser).arguments) {
+                ON_ERROR(e_argument{arg});
+                auto match = arg.match_long(given);
+                if (match.empty()) {
+                    continue;
+                }
+                ON_ERROR(e_argument_name{std::string(match)});
+                return handle_long(given, match, arg, argv);
             }
-            return handle_long(given, match, arg, argv);
         }
         check_help(argv);
-        throw unknown_argument{std::string{given}};
+        BOOST_LEAF_THROW_EXCEPTION(unknown_argument{std::string{given}});
     }
 
     int handle_long(strv given, strv arg_name, const argument& arg, argv_subrange argv) {
-        auto _ = boost::leaf::on_error(e_argument_name{std::string(arg_name)}, e_argument{arg});
         if (seen.count(arg.id())) {
             // We've already seen this argument before
             if (not arg.can_repeat()) {
                 check_help(argv);
-                throw invalid_argument_repetition{std::string(arg_name)};
+                BOOST_LEAF_THROW_EXCEPTION(invalid_argument_repetition{std::string(arg_name)});
             }
         }
         seen.insert(arg.id());
@@ -182,6 +192,7 @@ struct parsing_state {
             // The next in the argv would be the value
             if (not arg.wants_value()) {
                 // This is an argument without a value
+                ON_ERROR(e_argument_value{""});
                 arg.handle(arg_name, "");
                 return 1;
             }
@@ -192,6 +203,7 @@ struct parsing_state {
                 throw missing_argument_value{std::string{arg_name}};
             }
             auto value = *it;
+            ON_ERROR(e_argument_value{value});
             arg.handle(arg_name, value);
             return 2;
         } else {
@@ -207,6 +219,7 @@ struct parsing_state {
                 throw invalid_argument_value{std::string(tail.substr(1))};
             }
             auto value = tail.substr(1);
+            ON_ERROR(e_argument_value{std::string(value)});
             arg.handle(arg_name, value);
             return 1;
         }
@@ -235,12 +248,16 @@ struct parsing_state {
     }
 
     short_skip_results try_parse_shorts_1(strv letters, argv_subrange argv) {
-        for (auto& arg : std::views::reverse(chain_arguments())) {
-            auto mat = arg.match_short(letters);
-            if (mat.empty()) {
-                continue;
+        for (const auto& parser : std::views::reverse(parser_chain)) {
+            ON_ERROR(e_argument_parser{parser});
+            for (auto&& arg : _impl_of(parser).arguments) {
+                ON_ERROR(e_argument{arg});
+                auto mat = arg.match_short(letters);
+                if (mat.empty()) {
+                    continue;
+                }
+                return handle_short(letters, mat, arg, argv);
             }
-            return handle_short(letters, mat, arg, argv);
         }
         return short_skip_results{0, 0};
     }
@@ -248,7 +265,7 @@ struct parsing_state {
     short_skip_results
     handle_short(strv letters, strv short_name, const argument& arg, argv_subrange argv) {
         std::string with_hyphen = "-" + std::string(short_name);
-        auto        _ = boost::leaf::on_error(e_argument_name{with_hyphen}, e_argument{arg});
+        ON_ERROR(e_argument_name{with_hyphen});
         if (seen.count(arg.id())) {
             // We've seen this one before
             if (not arg.can_repeat()) {
@@ -266,17 +283,20 @@ struct parsing_state {
                     check_help(argv);
                     throw missing_argument_value{with_hyphen};
                 }
+                ON_ERROR(e_argument_value{*it});
                 arg.handle(with_hyphen, *it);
                 return short_skip_results{.n_letters = static_cast<int>(short_name.size()),
                                           .n_words   = 2};
             } else {
                 // Treat the remainder of the word as the argument
+                ON_ERROR(e_argument_value{std::string(remain)});
                 arg.handle(with_hyphen, remain);
                 return short_skip_results{.n_letters = static_cast<int>(letters.size()),
                                           .n_words   = 1};
             }
         } else {
             // No value. Ignore remaining letters
+            ON_ERROR(e_argument_value{""});
             arg.handle(with_hyphen, "");
             return short_skip_results{.n_letters = static_cast<int>(short_name.size()),
                                       .n_words   = 0};
@@ -284,21 +304,26 @@ struct parsing_state {
     }
 
     int try_parse_positional(strv given, argv_subrange argv) {
-        for (auto&& arg : chain_arguments()) {
-            if (not arg.is_positional()) {
-                // We're not parsing these here
-                continue;
+        for (auto parser : std::views::reverse(parser_chain)) {
+            ON_ERROR(e_argument_parser{parser});
+            for (auto&& arg : _impl_of(parser).arguments) {
+                ON_ERROR(e_argument{arg});
+                if (not arg.is_positional()) {
+                    // We're not parsing these here
+                    continue;
+                }
+                ON_ERROR(e_argument_name{std::string(arg.preferred_name())});
+                if (seen.count(arg.id()) and not arg.can_repeat()) {
+                    // We've already seen this one
+                    continue;
+                }
+                seen.insert(arg.id());
+                ON_ERROR(e_argument_value{std::string(given)});
+                arg.handle(given, given);
+                return 1;
             }
-            if (seen.count(arg.id())) {
-                // We've already seen this one
-                continue;
-            }
-            seen.insert(arg.id());
-            auto _ = boost::leaf::on_error(e_argument_name{std::string{arg.preferred_name()}},
-                                           e_argument{arg});
-            arg.handle(given, given);
-            return 1;
         }
+
         // No positional argument matched. Maybe a subcommand?
         detail::argument_parser_impl const& tail_parser = _impl_of(parser_chain.back());
         if (tail_parser.subparsers.has_value()) {
@@ -380,7 +405,7 @@ void argument_parser::_parse_args(argv_array argv) const {
 
 void argument_parser::parse_main_argv(int argc, const char* const* argv) const {
     neo_assert_always(expects,
-                      argc > 1,
+                      argc >= 1,
                       "At least one argument is required for parse_main_argv()",
                       argc);
     auto       _ = boost::leaf::on_error(e_invoked_as{argv[0]});
@@ -527,20 +552,18 @@ std::string argument_parser::help_string(category cat, std::string_view progname
     auto any_adv = any_of_category(advanced);
 
     if (any_dbg or any_adv) {
-        ret.append(
-            "Help options:\n"
-            "  --help / -h\n"
-            "    ➥ Get general help\n\n");
+        std::string help = "--help / -h";
         if (any_adv) {
-            ret.append(
-                "  --help-adv\n"
-                "    ➥ Include advanced progam options\n\n");
+            help += " / --help-adv";
         }
         if (any_dbg) {
-            ret.append(
-                "  --help-dbg\n"
-                "    ➥ Include debugging program options\n\n");
+            help += " / --help-dbg";
         }
+        ret.append(
+            std::string(neo::str_concat("Help options:\n"
+                                        "  ",
+                                        help,
+                                        "\n    ➥ Print help text\n\n")));
     }
 
     if (_impl->params.epilog.has_value()) {

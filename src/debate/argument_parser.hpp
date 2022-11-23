@@ -56,7 +56,6 @@ struct argument_parser_impl;
 
 }  // namespace detail
 
-class argument_parser;
 class subparser_group;
 
 class argument_parser {
@@ -92,6 +91,11 @@ public:
     std::string help_string(category cat, std::string_view progname) const noexcept;
 };
 
+/// Error data: The argument_parser thaht saw the error (including a subparser)
+struct e_argument_parser {
+    argument_parser value;
+};
+
 class subparser_group {
     friend argument_parser;
 
@@ -108,15 +112,13 @@ public:
     argument_parser add_parser(params::for_subparser);
 };
 
-struct e_argument_parser {
-    argument_parser value;
-};
-
-struct e_subparser_group {
-    subparser_group value;
-};
-
+// Error data: The name of the program as it was invoked via parse_main_argv
 struct e_invoked_as {
+    std::string value;
+};
+
+// Error data: The word within argv that was being parsed
+struct e_parsing_word {
     std::string value;
 };
 

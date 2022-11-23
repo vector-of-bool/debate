@@ -62,8 +62,117 @@ TEST_CASE("Cases") {
 
     auto parse = [&](std::initializer_list<std::string_view> argv) { parser.parse_args(argv); };
 
+    SECTION("Simple positionals") {
+        opt_string first;
+        opt_string second;
+        opt_string third;
+
+        SECTION("Required positionals") {
+            auto first_arg  = parser.add_argument({
+                 .names  = {"first"},
+                 .action = debate::store_string(first),
+            });
+            auto second_arg = parser.add_argument({
+                .names  = {"second"},
+                .action = debate::store_string(second),
+            });
+            auto third_arg  = parser.add_argument({
+                 .names    = {"third"},
+                 .action   = debate::store_string(third),
+                 .required = false,
+            });
+
+            SECTION("Missing first") {
+                boost::leaf::try_catch(
+                    [&] {
+                        parse({});
+                        FAIL_CHECK("Did not fail");
+                    },
+                    [&](debate::missing_argument,
+                        debate::e_argument_parser,
+                        debate::e_argument        missing_arg,
+                        debate::e_argument_value* valptr,
+                        debate::e_argument_name*  nameptr) {
+                        CHECK(valptr == nullptr);
+                        CHECK(nameptr == nullptr);
+                        CHECK(missing_arg.value.id() == first_arg.id());
+                    });
+            }
+
+            SECTION("Missing second") {
+                boost::leaf::try_catch(
+                    [&] {
+                        parse({"foo"});
+                        FAIL_CHECK("Did not fail");
+                    },
+                    [&](debate::missing_argument,
+                        debate::e_argument_parser,
+                        debate::e_argument        missing_arg,
+                        debate::e_argument_value* valptr,
+                        debate::e_argument_name*  nameptr) {
+                        CHECK(valptr == nullptr);
+                        CHECK(nameptr == nullptr);
+                        CHECK(missing_arg.value.id() == second_arg.id());
+                    });
+            }
+
+            SECTION("Missing third non-required") {
+                parse({"foo", "bar"});
+                CHECK(first == "foo");
+                CHECK(second == "bar");
+                CHECK_FALSE(third.has_value());
+            }
+
+            SECTION("Supply third non-required") {
+                parse({"foo", "bar", "baz"});
+                CHECK(first == "foo");
+                CHECK(second == "bar");
+                CHECK(third == "baz");
+            }
+        }
+
+        SECTION("Repeated positionals") {
+            parser.add_argument({
+                .names  = {"foo"},
+                .action = debate::null_action,
+            });
+
+            std::vector<std::string> repeated;
+            SECTION("Required repeated") {
+                auto repeat_arg = parser.add_argument({
+                    .names      = {"repeat-me"},
+                    .action     = debate::store_string(std::back_inserter(repeated)),
+                    .can_repeat = true,
+                });
+                SECTION("Missing") {
+                    boost::leaf::try_catch(
+                        [&] {
+                            parse({"first"});
+                            FAIL_CHECK("Did not fail");
+                        },
+                        [&](debate::missing_argument, debate::e_argument arg) {
+                            CHECK(arg.value.id() == repeat_arg.id());
+                        });
+                }
+                SECTION("Once") {
+                    parse({"first", "second"});
+                    CHECKED_IF(repeated.size() == 1) { CHECK(repeated[0] == "second"); };
+                }
+                SECTION("More than once") {
+                    parse({"first", "second", "third", "fourth"});
+                    CHECKED_IF(repeated.size() == 3) {
+                        CHECK(repeated[0] == "second");
+                        CHECK(repeated[1] == "third");
+                        CHECK(repeated[2] == "fourth");
+                    };
+                }
+            }
+        }
+    }
+
     SECTION("Simple flag with value") {
-        opt_string foo;
+        opt_string               foo;
+        std::vector<std::string> args;
 
         auto foo_arg_object = parser.add_argument({
             .names  = {"--foo", "-F"},
@@ -72,6 +181,11 @@ TEST_CASE("Cases") {
         parser.add_argument({
             .names  = {"--foo-with-extra"},
             .action = debate::null_action,
+        });
+        parser.add_argument({
+            .names      = {"--arg", "-A"},
+            .action     = debate::store_string(std::back_inserter(args)),
+            .can_repeat = true,
         });
 
         SECTION("Omitted") {
@@ -199,6 +313,11 @@ TEST_CASE("Cases") {
                     CHECK(failed_arg.value.id() == foo_arg_object.id());
                     CHECK(word.value == "--foo");
                 });
+        }
+
+        SECTION("Repition is okay with can_repeat") {
+            parse({"-A", "bar", "--arg", "value"});
+            CHECK(args.size() == 2);
         }
     }
 

@@ -2,6 +2,7 @@
 
 #include "./argv.hpp"
 
+#include <neo/assignable_box.hpp>
 #include <neo/declval.hpp>
 #include <neo/shared.hpp>
 
@@ -86,33 +87,52 @@ public:
     void handle(std::string_view argv_spelling, std::string_view argv_value) const;
 };
 
-struct e_argument_name {
-    std::string value;
-};
-
+/// Error data: The argument object that was being handled that generated the error
 struct e_argument {
     argument value;
 };
 
-template <typename D>
-requires std::assignable_from<D&, std::string>
-auto store_string(D& out) noexcept {
-    return [&](std::string_view, std::string_view spell) { out = std::string(spell); };
+/// Error data: The spelling of the argument name as it was given in the command array
+struct e_argument_name {
+    std::string value;
+};
+
+/// Error data: The value that was provided to an argument
+struct e_argument_value {
+    std::string value;
+};
+
+template <typename Target, typename Value>
+concept storage_target = requires(Target&& t, Value&& v) {
+    t = NEO_FWD(v);
+};
+
+template <storage_target<std::string> D>
+auto store_string(D&& out) noexcept {
+    return [out = neo::assignable_box{NEO_FWD(out)}](std::string_view,
+                                                     std::string_view spell) mutable {
+        out.get() = std::string(spell);
+    };
 }
 
 template <typename Dest, typename T>
-requires std::assignable_from<Dest&, T&>
-auto store_value(Dest& into, T&& value) noexcept {
-    return [&into, value = NEO_FWD(value)](std::string_view, std::string_view) { into = value; };
+requires storage_target<Dest, T>
+auto store_value(Dest&& into, T&& value) noexcept {
+    neo::assignable_box into_box{NEO_FWD(into)};
+    return [into_box, value = NEO_FWD(value)](std::string_view, std::string_view) {
+        into_box.get() = value;
+    };
 }
 
-template <typename B>
-requires std::assignable_from<B&, bool>
-auto store_true(B& out) noexcept { return store_value(out, true); }
+template <storage_target<bool> B>
+auto store_true(B&& out) noexcept {
+    return store_value(NEO_FWD(out), true);
+}
 
-template <typename B>
-requires std::assignable_from<B&, bool>
-auto store_false(B& out) noexcept { return store_value(out, false); }
+template <storage_target<bool> B>
+auto store_false(B&& out) noexcept {
+    return store_value(NEO_FWD(out), false);
+}
 
 struct null_action_t {
     void operator()(std::string_view, std::string_view) const noexcept {}
