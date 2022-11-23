@@ -71,6 +71,17 @@ int main(int argc, char** argv) {
             This is another paragraph now.
         )",
     });
+    echo.add_argument({
+        .names    = {"not-required"},
+        .action   = null_action,
+        .required = false,
+    });
+    echo.add_argument({
+        .names      = {"not-required-repeatable"},
+        .action     = null_action,
+        .can_repeat = true,
+        .required   = false,
+    });
 
     auto dbg = subs.add_parser({
         .name        = "debug",

@@ -4,14 +4,6 @@
 
 namespace debate {
 
-struct e_parsing_word {
-    std::string value;
-};
-
-struct e_argument_value {
-    std::string value;
-};
-
 struct logic_error : std::logic_error {
     using std::logic_error::logic_error;
 };
