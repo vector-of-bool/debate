@@ -366,7 +366,7 @@ struct parsing_state {
             // Select the named arguments only
             | stdv::filter(NEO_TL(not _1.is_positional()))
             // Select only those arguments that haven't already been provided
-            | stdv::filter(NEO_TL(not seen.contains(_1.id())))
+            | stdv::filter([&](auto arg) { return not seen.contains(arg.id()); })
             // Get the preferred name of those arguments
             | stdv::transform(&argument::preferred_name)
             // Save those
