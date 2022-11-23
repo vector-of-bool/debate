@@ -1,6 +1,7 @@
 #include "./edit_distance.hpp"
 
 #include <algorithm>
+#include <array>
 #include <ranges>
 #include <vector>
 
