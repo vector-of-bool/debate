@@ -1,5 +1,6 @@
 #include "./argument_parser.hpp"
 
+#include "./detail/edit_distance.hpp"
 #include "./detail/reflow.hpp"
 #include "./error.hpp"
 
@@ -7,6 +8,7 @@
 #include <boost/leaf/on_error.hpp>
 #include <neo/assert.hpp>
 #include <neo/memory.hpp>
+#include <neo/scope.hpp>
 #include <neo/tl.hpp>
 #include <neo/tokenize.hpp>
 #include <neo/ufmt.hpp>
@@ -175,7 +177,7 @@ struct parsing_state {
             }
         }
         check_help(argv);
-        BOOST_LEAF_THROW_EXCEPTION(unknown_argument{std::string{given}});
+        throw_unknown(given);
     }
 
     int handle_long(strv given, strv arg_name, const argument& arg, argv_subrange argv) {
@@ -241,7 +243,7 @@ struct parsing_state {
             if (skip.n_letters == 0) {
                 // We never matched anything
                 check_help(argv);
-                throw unknown_argument{"-" + std::string(letters)};
+                throw_unknown("-" + std::string(letters));
             }
         }
         return 1;
@@ -341,7 +343,42 @@ struct parsing_state {
             }
         }
         check_help(argv);
-        throw unknown_argument{std::string{given}};
+        throw_unknown(given);
+    }
+
+    [[noreturn]] void throw_unknown(std::string_view given) {
+        neo_defer {
+            auto nearest = find_nearest_arg_spelling(given);
+            if (nearest) {
+                boost::leaf::current_error().load(e_did_you_mean{*nearest});
+            }
+        };
+        BOOST_LEAF_THROW_EXCEPTION(unknown_argument{std::string(given)});
+    }
+
+    std::optional<std::string> find_nearest_arg_spelling(std::string_view given) {
+        auto all_parsers = parser_chain;
+        auto all_args   = stdv::transform(all_parsers, NEO_TL(_impl_of(_1).arguments)) | stdv::join;
+        auto named_args = stdv::filter(all_args, std::not_fn(&argument::is_positional));
+        auto unseen_args  = stdv::filter(named_args, NEO_TL(not seen.contains(_1.id())));
+        auto unseen_names = stdv::transform(unseen_args, &argument::preferred_name);
+        auto candidates   = neo::to_vector(unseen_names);
+
+        auto subs = parser_chain.back().subparsers();
+        if (subs) {
+            for (auto n : subs->names()) {
+                candidates.emplace_back(NEO_MOVE(n));
+            }
+        }
+
+        auto nearest = std::ranges::min_element(candidates,
+                                                std::less<>{},
+                                                NEO_TL(detail::lev_edit_distance(_1, given)));
+        if (nearest == candidates.end()) {
+            return std::nullopt;
+        } else {
+            return std::string(*nearest);
+        }
     }
 };
 
@@ -378,6 +415,13 @@ subparser_group argument_parser::add_subparsers(params::for_subparser_group p) {
     return subparser_group{*this};
 }
 
+std::optional<subparser_group> argument_parser::subparsers() noexcept {
+    if (not _impl->subparsers.has_value()) {
+        return std::nullopt;
+    }
+    return subparser_group{*this};
+}
+
 subparser_group::subparser_group(argument_parser p) noexcept
     : _parser(p) {}
 
@@ -396,6 +440,11 @@ argument_parser subparser_group::add_parser(params::for_subparser p) {
     impl.subparsers->parsers.emplace(p.name, child);
     parser._impl->parent = _parser._impl;
     return parser;
+}
+
+std::vector<std::string> subparser_group::names() const noexcept {
+    auto& impl = detail::argument_parser_impl::extract(_parser);
+    return neo::to_vector(stdv::keys(impl.subparsers->parsers));
 }
 
 void argument_parser::_parse_args(argv_array argv) const {

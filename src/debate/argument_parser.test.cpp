@@ -62,6 +62,8 @@ TEST_CASE("Cases") {
 
     auto parse = [&](std::initializer_list<std::string_view> argv) { parser.parse_args(argv); };
 
+    CHECK_FALSE(parser.subparsers().has_value());
+
     SECTION("Simple positionals") {
         opt_string first;
         opt_string second;
@@ -211,6 +213,32 @@ TEST_CASE("Cases") {
         SECTION("Empty equals") {
             parse({"--foo="});
             CHECKED_IF(foo.has_value()) { CHECK(foo->empty()); }
+        }
+
+        SECTION("Unknown arg") {
+            boost::leaf::try_catch(
+                [&] {
+                    parse({"--fob"});
+                    FAIL_CHECK("Did not fail");
+                },
+                [](debate::unknown_argument, debate::e_did_you_mean dym) {
+                    CHECK(dym.value == "--foo");
+                });
+        }
+
+        SECTION("Unknown, no nearest") {
+            boost::leaf::try_catch(
+                [&] {
+                    parse({"--foo=1", "--foo-with-extra=3", "--arg=3", "--fob"});
+                    FAIL_CHECK("Did not fail");
+                },
+                [](debate::unknown_argument,
+                   debate::e_parsing_word  word,
+                   debate::e_did_you_mean* dym) {
+                    // No un-provided argument that we can match
+                    CHECK(word.value == "--fob");
+                    CHECK(dym == nullptr);
+                });
         }
 
         SECTION("Missing value") {
@@ -390,6 +418,8 @@ TEST_CASE("Subparsers") {
             .required = false,
         });
 
+        CHECK(p.subparsers().has_value());
+
         grp.add_parser({.name = "foo"});
         grp.add_parser({.name = "bar"});
 
@@ -430,11 +460,13 @@ TEST_CASE("Subparsers") {
                     FAIL_CHECK("Did not throw");
                 },
                 [&](debate::e_argument_parser,
-                    debate::e_parsing_word word,
+                    debate::e_parsing_word  word,
+                    debate::e_did_you_mean* dym,
                     debate::unknown_argument) {
                     CHECK(selected_subparser == "foo");
                     CHECK(base_value == "something");
                     CHECK(word.value == "bar");
+                    CHECK(dym == nullptr);
                 });
         }
 

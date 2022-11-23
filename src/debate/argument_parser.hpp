@@ -77,6 +77,8 @@ public:
 
     subparser_group add_subparsers(params::for_subparser_group);
 
+    std::optional<subparser_group> subparsers() noexcept;
+
     template <std::ranges::input_range R>
     requires std::convertible_to<std::ranges::range_reference_t<R>, std::string_view>
     void parse_args(R&& r) const { _parse_args(argv_array(r)); }
@@ -110,6 +112,8 @@ public:
      * create this group.
      */
     argument_parser add_parser(params::for_subparser);
+
+    std::vector<std::string> names() const noexcept;
 };
 
 // Error data: The name of the program as it was invoked via parse_main_argv
@@ -119,6 +123,11 @@ struct e_invoked_as {
 
 // Error data: The word within argv that was being parsed
 struct e_parsing_word {
+    std::string value;
+};
+
+// The spelling of the most similar argument name to an unknown argument string provided
+struct e_did_you_mean {
     std::string value;
 };
 
