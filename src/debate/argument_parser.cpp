@@ -357,13 +357,22 @@ struct parsing_state {
     }
 
     std::optional<std::string> find_nearest_arg_spelling(std::string_view given) {
-        auto all_parsers = parser_chain;
-        auto all_args   = stdv::transform(all_parsers, NEO_TL(_impl_of(_1).arguments)) | stdv::join;
-        auto named_args = stdv::filter(all_args, std::not_fn(&argument::is_positional));
-        auto unseen_args  = stdv::filter(named_args, NEO_TL(not seen.contains(_1.id())));
-        auto unseen_names = stdv::transform(unseen_args, &argument::preferred_name);
-        auto candidates   = neo::to_vector(unseen_names);
+        std::vector<std::string_view> candidates =  //
+            parser_chain
+            // Get arguments of each parser
+            | stdv::transform(NEO_TL(_impl_of(_1).arguments))
+            // Flatten
+            | stdv::join
+            // Select the named arguments only
+            | stdv::filter(NEO_TL(not _1.is_positional()))
+            // Select only those arguments that haven't already been provided
+            | stdv::filter(NEO_TL(not seen.contains(_1.id())))
+            // Get the preferred name of those arguments
+            | stdv::transform(&argument::preferred_name)
+            // Save those
+            | neo::to_vector;
 
+        // The user may also want to provide a subparser
         auto subs = parser_chain.back().subparsers();
         if (subs) {
             for (auto n : subs->names()) {
